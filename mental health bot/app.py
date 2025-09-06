@@ -10,6 +10,10 @@ import speech_recognition as sr
 import threading
 from deep_translator import GoogleTranslator
 from datetime import datetime, timedelta
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # =========================================================================
 # === API Key Handling and Configuration ===
@@ -51,9 +55,14 @@ def speak_all_thread(text, voice_type, rate, pitch):
     engine_thread.say(text)
     engine_thread.runAndWait()
 
-def speak_all(lines, voice_type="Female", rate=130, pitch=100):
+def speak_all(text, voice_type="Female", rate=130, pitch=100):
     """Starts the TTS in a new thread to prevent UI blocking."""
-    combined_text = ". ".join(lines)
+    # Ensure it's treated as a string, not list of characters
+    if isinstance(text, list):
+        combined_text = " ".join(text)   # join if it's a list
+    else:
+        combined_text = str(text)        # otherwise just keep it as string
+    
     tts_thread = threading.Thread(target=speak_all_thread, args=(combined_text, voice_type, rate, pitch))
     tts_thread.start()
 
@@ -162,6 +171,13 @@ st.session_state.setdefault("breath_timer", False)
 st.session_state.setdefault("last_seen_date", datetime.now().date())
 st.session_state.setdefault("streak_counter", 0)
 st.session_state.setdefault("language", "English")
+st.session_state.setdefault("listening", False)  # New state for microphone
+st.session_state.setdefault("age_valid", False)  # New state for age validation
+st.session_state.setdefault("text_input", "")  # Fix: Initialize text_input
+st.session_state.setdefault("mood_data", [])  # For mood tracking
+st.session_state.setdefault("journal_entries", [])  # For journaling
+st.session_state.setdefault("user_goals", [])  # For goal setting
+st.session_state.setdefault("user_memory", {})  # For remembering user details
 
 # Language codes for dynamic search queries
 language_codes = {
@@ -201,6 +217,110 @@ def translate_text(text, target_lang):
     translator = GoogleTranslator(source='en', target=language_codes.get(target_lang, 'en'))
     return translator.translate(text)
 
+# === Microphone Input Function ===
+def handle_microphone():
+    """Handle microphone input and process the speech."""
+    st.session_state.listening = True
+    with st.spinner(translate_text("🎙️ Listening... Speak now", st.session_state.language)):
+        recognized_text = recognize_voice()
+        if recognized_text:
+            st.session_state.text_input = recognized_text  # This should work now
+            handle_prompt_submit()
+        st.session_state.listening = False
+
+# === Age Validation Function ===
+def validate_age(age_str):
+    """Validate that the age is a legitimate number between 5 and 120."""
+    try:
+        age = int(age_str)
+        if age < 5:
+            return False, "Age must be at least 5 years."
+        elif age > 120:
+            return False, "Please enter a valid age (under 120)."
+        else:
+            return True, "Age validated successfully."
+    except ValueError:
+        return False, "Please enter a valid number for age."
+
+# === Mood Tracking Functions ===
+def add_mood_rating(rating, emoji):
+    """Add a mood rating to the session state."""
+    timestamp = datetime.now()
+    st.session_state.mood_data.append({
+        "timestamp": timestamp,
+        "rating": rating,
+        "emoji": emoji,
+        "date": timestamp.date()
+    })
+
+def visualize_mood_data():
+    """Create a visualization of the mood data."""
+    if not st.session_state.mood_data:
+        return None
+    
+    df = pd.DataFrame(st.session_state.mood_data)
+    df['date_str'] = df['timestamp'].dt.strftime('%Y-%m-%d')
+    
+    # Create a line chart
+    fig = px.line(df, x='date_str', y='rating', 
+                  title='Your Mood Over Time',
+                  labels={'date_str': 'Date', 'rating': 'Mood Rating'})
+    
+    # Add emoji markers
+    for i, row in df.iterrows():
+        fig.add_annotation(x=row['date_str'], y=row['rating'],
+                           text=row['emoji'], showarrow=False,
+                           yshift=25)
+    
+    return fig
+
+# === Journaling Functions ===
+def add_journal_entry(entry_text, prompt=""):
+    """Add a journal entry to the session state."""
+    timestamp = datetime.now()
+    st.session_state.journal_entries.append({
+        "timestamp": timestamp,
+        "entry": entry_text,
+        "prompt": prompt
+    })
+
+# === Goal Setting Functions ===
+def add_goal(goal_text, category="Wellness"):
+    """Add a goal to the session state."""
+    st.session_state.user_goals.append({
+        "goal": goal_text,
+        "category": category,
+        "created": datetime.now(),
+        "completed": False,
+        "completed_date": None
+    })
+
+def update_goal_completion(goal_index, completed):
+    """Update the completion status of a goal."""
+    if 0 <= goal_index < len(st.session_state.user_goals):
+        st.session_state.user_goals[goal_index]["completed"] = completed
+        if completed:
+            st.session_state.user_goals[goal_index]["completed_date"] = datetime.now()
+
+# === Memory Functions ===
+def update_user_memory(key, value):
+    """Update the user's memory with a key-value pair."""
+    st.session_state.user_memory[key] = {
+        "value": value,
+        "timestamp": datetime.now()
+    }
+
+def get_user_memory_context():
+    """Generate context from user memory for the AI."""
+    if not st.session_state.user_memory:
+        return ""
+    
+    context = "Here's what I remember about the user:\n"
+    for key, data in st.session_state.user_memory.items():
+        context += f"- {key}: {data['value']} (mentioned on {data['timestamp'].strftime('%Y-%m-%d')})\n"
+    
+    return context
+
 # === Main App UI and Logic ===
 # Header
 st.markdown("""
@@ -209,36 +329,65 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # User Info block
-if st.session_state.user_name:
+if st.session_state.user_name and st.session_state.age_valid:
     st.success(f"Welcome back, {st.session_state.user_name}! How is your day going?")
 else:
     with st.expander("👤 Start by telling me about yourself", expanded=True):
         st.info("The chatbot is not accessing your local information. The suggestions you see in the input box are from your browser's auto-fill feature.")
         name = st.text_input("Your Name", placeholder="e.g., Jane Doe")
-        age_str = st.text_input("Your Age", placeholder="e.g., 25")
+        age_str = st.text_input("Your Age", placeholder="e.g., 25", key="age_input")
         faith = st.selectbox(
             "Your Faith", 
             ["Not specified", "Hinduism", "Christianity", "Jainism", "Buddhism", "Atheist", "None"]
         )
-        if name.strip() and age_str.strip():
-            try:
+        
+        # Age validation
+        if age_str:
+            is_valid, message = validate_age(age_str)
+            if is_valid:
                 st.session_state.user_age = int(age_str.strip())
-                st.session_state.user_name = name.strip()
-                st.session_state.user_faith = faith
-                st.success(f"Welcome, {name}! Let's talk.")
-            except ValueError:
-                st.warning("Please enter a valid age (number).")
+                st.session_state.age_valid = True
+                st.success("✓ Age validated")
+            else:
+                st.warning(message)
+                st.session_state.age_valid = False
         else:
-            st.warning("Please enter both name and age to proceed.")
+            st.session_state.age_valid = False
+            
+        if name.strip() and st.session_state.age_valid:
+            st.session_state.user_name = name.strip()
+            st.session_state.user_faith = faith
+            update_user_memory("name", name.strip())
+            update_user_memory("age", st.session_state.user_age)
+            update_user_memory("faith", faith)
+            st.success(f"Welcome, {name}! Let's talk.")
+        elif name.strip() and not st.session_state.age_valid:
+            st.warning("Please enter a valid age to proceed.")
+        else:
+            st.warning("Please enter your name to proceed.")
 
 st.markdown("---")
 
 # Main chat UI is now conditional
-if st.session_state.user_name and st.session_state.user_age:
+if st.session_state.user_name and st.session_state.user_age and st.session_state.age_valid:
     # Display a welcome message if the chat is empty.
     if not st.session_state.messages:
-        initial_message = "Hello! I'm here to listen. How are you feeling today?"
-        st.session_state.messages.append({"role": "assistant", "content": initial_message})
+        # Use memory to personalize the welcome
+        memory_context = get_user_memory_context()
+        personalized_welcome = f"Hello {st.session_state.user_name}! I'm here to listen. How are you feeling today?"
+        
+        # Add context from memory if available
+        if memory_context:
+            # Check for recent events or topics to mention
+            for key in st.session_state.user_memory:
+                if "exam" in key.lower() or "test" in key.lower():
+                    personalized_welcome = f"Hello {st.session_state.user_name}! I remember you mentioned exams coming up. How are you feeling about them today?"
+                    break
+                elif "work" in key.lower() or "project" in key.lower():
+                    personalized_welcome = f"Hello {st.session_state.user_name}! How is your work/project going today?"
+                    break
+        
+        st.session_state.messages.append({"role": "assistant", "content": personalized_welcome})
 
     # Loop through and display the chat messages stored in the session state.
     for message in st.session_state.messages:
@@ -282,6 +431,13 @@ if st.session_state.user_name and st.session_state.user_age:
     def get_gemini_response(prompt):
         chat_history = st.session_state.hidden_history.copy()
         
+        # Add memory context to the prompt
+        memory_context = get_user_memory_context()
+        if memory_context:
+            enhanced_prompt = f"{memory_context}\n\nUser: {prompt}"
+        else:
+            enhanced_prompt = prompt
+            
         # Add a specific instruction for religious verses if a negative emotion is detected
         negative_keywords = ["sad", "angry", "lonely", "stressed", "depressed", "low", "hopeless"]
         if any(kw in prompt.lower() for kw in negative_keywords) and st.session_state.user_faith and st.session_state.user_faith not in ["Not specified", "Atheist", "None"]:
@@ -291,7 +447,7 @@ if st.session_state.user_name and st.session_state.user_age:
         for m in st.session_state.messages:
             role = "user" if m["role"] == "user" else "model"
             chat_history.append({"role": role, "parts": [{"text": m["content"]}]})
-        chat_history.append({"role": "user", "parts": [{"text": prompt}]})
+        chat_history.append({"role": "user", "parts": [{"text": enhanced_prompt}]})
         payload = {"contents": chat_history}
         
         try:
@@ -318,6 +474,14 @@ if st.session_state.user_name and st.session_state.user_age:
         if prompt:
             st.session_state.messages.append({"role": "user", "content": prompt})
             
+            # Extract potential memory items from user input
+            if "my name is" in prompt.lower():
+                # Try to extract name
+                parts = prompt.lower().split("my name is")
+                if len(parts) > 1:
+                    name = parts[1].strip().split()[0].capitalize()
+                    update_user_memory("name", name)
+            
             if any(keyword in prompt.lower() for keyword in ["crisis", "emergency", "suicidal", "point anymore"]):
                 crisis_message = translate_text("""I hear you. Please don't go. I'm here for you, and I want to listen. Things can get better, and you're not alone. You can talk to me about anything that's on your mind.
 
@@ -342,8 +506,25 @@ TISS iCALL: www.icallhelpline.org
             st.session_state.text_input = ""
             st.rerun()
 
-    # The chat input now has an on_submit callback
-    st.chat_input(translate_text("How can I help you?", st.session_state.language), on_submit=handle_prompt_submit, key="text_input")
+    # Create a custom input area with microphone button
+    col1, col2 = st.columns([6, 1])
+    
+    with col1:
+        st.chat_input(
+            translate_text("How can I help you?", st.session_state.language), 
+            on_submit=handle_prompt_submit, 
+            key="text_input"
+        )
+    
+    with col2:
+        # Microphone button with appropriate styling
+        if st.button(
+            "🎤", 
+            help=translate_text("Click to speak your message", st.session_state.language),
+            use_container_width=True,
+            disabled=st.session_state.listening
+        ):
+            handle_microphone()
     
     # Add the 'Hear Response' button below the chat input if there's a last reply
     if st.session_state.last_reply:
@@ -351,7 +532,8 @@ TISS iCALL: www.icallhelpline.org
         speak_col, stop_col = st.columns([1, 1])
         with speak_col:
             if st.button(translate_text("🔊 Hear Response", st.session_state.language)):
-                speak_all(st.session_state.last_reply, st.session_state.voice_choice, st.session_state.get("rate", 130), st.session_state.get("pitch", 100))
+              speak_all(st.session_state.last_reply, st.session_state.voice_choice, st.session_state.get("rate", 130), st.session_state.get("pitch", 100))
+
         with stop_col:
             if st.button(translate_text("🛑 Stop Speaking", st.session_state.language)):
                 stop_speaking()
@@ -382,6 +564,10 @@ with st.sidebar:
     if st.button(translate_text("❌ Stop Timer", st.session_state.language), key="main_stop"):
         st.session_state.timer_started = None
         st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 🌬 Breathing Cycle")
+    st.markdown("**Inhale** for 5 sec → **Hold** for 5 sec → **Exhale** for 5 sec")
     
     st.markdown("---")
     st.markdown(translate_text("### 📊 Session Stats", st.session_state.language))
@@ -398,8 +584,111 @@ with st.sidebar:
 
     st.markdown("---")
     
+    # === New Features Section ===
+    st.markdown("### 🌟 Mood Tracker")
+    
+    # Mood rating after conversations
+    if st.session_state.messages and len(st.session_state.messages) > 2:
+        st.markdown("How are you feeling after our conversation?")
+        mood_cols = st.columns(5)
+        moods = [
+            ("😢", 1, "Very Sad"),
+            ("😞", 2, "Sad"),
+            ("😐", 3, "Neutral"),
+            ("😊", 4, "Happy"),
+            ("😁", 5, "Very Happy")
+        ]
+        
+        for i, (emoji, rating, label) in enumerate(moods):
+            with mood_cols[i]:
+                if st.button(emoji, help=label, key=f"mood_{rating}"):
+                    add_mood_rating(rating, emoji)
+                    st.success(f"Recorded: {label}")
+        
+        # Show mood visualization if we have data
+        if st.session_state.mood_data:
+            st.markdown("---")
+            st.markdown("### 📈 Your Mood History")
+            fig = visualize_mood_data()
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("---")
+    st.markdown("### 📔 Journaling")
+    
+    journal_prompts = [
+        "What are you grateful for today?",
+        "What challenged you today?",
+        "What made you smile today?",
+        "What did you learn about yourself today?",
+        "What would you like to let go of?"
+    ]
+    
+    selected_prompt = st.selectbox("Choose a journal prompt", [""] + journal_prompts)
+    journal_entry = st.text_area("Write your thoughts here", height=100, key="journal_entry")
+    
+    if st.button("Save Journal Entry", key="save_journal"):
+        if journal_entry:
+            add_journal_entry(journal_entry, selected_prompt)
+            st.success("Journal entry saved!")
+            st.session_state.journal_entry = ""  # Clear the input
+        else:
+            st.warning("Please write something before saving.")
+    
+    st.markdown("---")
+    st.markdown("### 🎯 Goal Setting")
+    
+    goal_categories = ["Wellness", "Social", "Productivity", "Mindfulness", "Personal Growth"]
+    goal_category = st.selectbox("Goal Category", goal_categories)
+    new_goal = st.text_input("Set a new goal", key="new_goal")
+    
+    if st.button("Add Goal", key="add_goal"):
+        if new_goal:
+            add_goal(new_goal, goal_category)
+            st.success("Goal added!")
+        else:
+            st.warning("Please enter a goal.")
+    
+    # Display current goals
+    if st.session_state.user_goals:
+        st.markdown("#### Your Current Goals")
+        for i, goal in enumerate(st.session_state.user_goals):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                status = "✅" if goal["completed"] else "⏳"
+                st.write(f"{status} {goal['goal']} ({goal['category']})")
+            with col2:
+                if not goal["completed"]:
+                    if st.button("Complete", key=f"complete_{i}"):
+                        update_goal_completion(i, True)
+                        st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### 🎵 Meditation & Soundscapes")
+    
+    sound_options = {
+        "Rain Sounds": "https://www.youtube.com/results?search_query=rain+sounds+relaxation",
+        "Ocean Waves": "https://www.youtube.com/results?search_query=ocean+waves+relaxation",
+        "Forest Ambience": "https://www.youtube.com/results?search_query=forest+sounds+relaxation",
+        "Guided Meditation": "https://www.youtube.com/results?search_query=guided+meditation+for+anxiety",
+        "Calming Music": "https://www.youtube.com/results?search_query=calming+music+for+stress+relief"
+    }
+    
+    for sound_name, sound_link in sound_options.items():
+        st.link_button(sound_name, sound_link)
+    
+    st.markdown("---")
+    st.markdown("### 💬 Community Support")
+    st.markdown("""
+    **Messages from others:**
+    - "You're stronger than you think. Keep going! 💪"
+    - "It's okay to not be okay. Tomorrow is a new day. 🌅"
+    - "Small steps still move you forward. Celebrate them! 🎉"
+    - "Your feelings are valid. You matter. ❤️"
+    """)
+    
     # Conditionally display helpful resources in the sidebar
-    if st.session_state.user_name and st.session_state.user_age:
+    if st.session_state.user_name and st.session_state.user_age and st.session_state.age_valid:
         st.markdown(translate_text("### 🔍 Helpful Resources", st.session_state.language))
         # Use user's faith to customize the video search
         faith_query = st.session_state.user_faith if st.session_state.user_faith and st.session_state.user_faith not in ["Not specified", "Atheist", "None"] else "mental health"
@@ -447,5 +736,5 @@ st.markdown("---")
 
 # Footer
 st.markdown("""
-<p style='text-align:center;'>🚀 Made for the Simplify AI Tools Hackathon</p>
+<p style='text-align:center;'>🚀 Made for the Hack Odisha 2025 </p>
 """, unsafe_allow_html=True)
