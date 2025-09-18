@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartBudget Travel Platform</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+  :root {
+    --primary: #3b82f6;
+    --secondary: #f97316;
+    --accent: #10b981;
+    --light: #f8fafc;
+    --dark: #1e293b;
+    --gray: #64748b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    color: var(--dark);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  header {
+    background: white; padding: 20px; border-radius: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  }
+  .logo { font-size: 24px; font-weight: bold; color: var(--primary); display: flex; align-items: center; gap: 10px; }
+  .btn { padding: 10px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-secondary { background: var(--secondary); color: white; }
+  .main { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+  .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+  .card h3 { margin-bottom: 10px; }
+  .input-group { margin-bottom: 15px; }
+  .input-group label { display: block; font-weight: 600; margin-bottom: 5px; }
+  .input-group input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; }
+  .passengers { margin-bottom: 15px; }
+  .passenger { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .passenger input { flex: 1; }
+  .remove-passenger { background: var(--secondary); color: white; border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  .results { display: flex; flex-direction: column; gap: 15px; }
+  .travel-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; background: #fff; transition: transform 0.2s; }
+  .travel-card:hover { transform: scale(1.02); }
+  .travel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .value-badge { background: var(--accent); color: white; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; }
+  .progress { height: 10px; border-radius: 5px; background: #e2e8f0; overflow: hidden; margin-bottom: 8px; }
+  .progress-fill { height: 100%; }
+  .progress-green { background: var(--accent); }
+  .progress-blue { background: var(--primary); }
+  .progress-orange { background: var(--secondary); }
+  .actions { display: flex; gap: 10px; margin-top: 10px; }
+  .tabs { display: flex; gap: 10px; margin: 20px 0; }
+  .tab { padding: 10px 15px; border-radius: 8px; background: var(--light); cursor: pointer; font-weight: 600; }
+  .tab.active { background: var(--primary); color: white; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  footer { text-align: center; padding: 20px; color: var(--gray); margin-top: 30px; }
+  @media(max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo"><i class="fas fa-route"></i> SmartBudget Travel</div>
+      <div>
+        <button class="btn btn-primary">Login</button>
+        <button class="btn btn-secondary">Download App</button>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- Booking Panel -->
+      <div>
+        <div class="card">
+          <h3>Plan Your Trip</h3>
+          <div class="input-group">
+            <label for="from">From</label>
+            <input type="text" id="from" placeholder="City or Station">
+          </div>
+          <div class="input-group">
+            <label for="to">To</label>
+            <input type="text" id="to" placeholder="City or Station">
+          </div>
+          <div class="input-group">
+            <label for="date">Travel Date</label>
+            <input type="date" id="date">
+          </div>
+          <div class="passengers">
+            <label>Passengers</label>
+            <div id="passenger-list"></div>
+            <button class="btn btn-primary" onclick="addPassenger()">+ Add Passenger</button>
+          </div>
+          <button class="btn btn-primary" onclick="calculateFare()">Calculate Fare</button>
+          <button class="btn btn-secondary" onclick="findRoutes()">Find Best Routes</button>
+        </div>
+      </div>
+
+      <!-- Results Panel -->
+      <div class="results" id="results">
+        <div class="travel-card">
+          <div class="travel-header">
+            <h4><i class="fas fa-train"></i> Train + Auto (Recommended)</h4>
+            <span class="value-badge">Best Value</span>
+          </div>
+          <p>Duration: 5h 20m | Cost: ₹850 | 1 Transfer</p>
+          <div class="progress"><div class="progress-fill progress-green" style="width: 90%;"></div></div>
+          <p>Comfort: ★★★★☆</p>
+          <div class="actions">
+            <button class="btn btn-primary">Book Now</button>
+            <button class="btn btn-secondary">View Map</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" onclick="openTab('api')">API Integration</div>
+      <div class="tab" onclick="openTab('backend')">Backend Architecture</div>
+      <div class="tab" onclick="openTab('compare')">Vs. Rome2rio</div>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="tab-content active" id="api">
+      <div class="card">
+        <h3>Integrated APIs</h3>
+        <ul>
+          <li>IRCTC – Train schedules & booking</li>
+          <li>RedBus – Bus routes & fares</li>
+          <li>Uber/Ola – Real-time cab estimates</li>
+          <li>Skyscanner – Flights</li>
+          <li>Google Maps – Routes, traffic, distances</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="tab-content" id="backend">
+      <div class="card">
+        <h3>Backend Architecture (Node.js + Express.js)</h3>
+        <pre>
+const express = require("express");
+const fetch = require("node-fetch");
+const app = express();
+
+app.get("/api/routes", async (req, res) => {
+  const { from, to, date } = req.query;
+
+  try {
+    const trainData = await fetch(`https://api.irctc.co.in/search?from=${from}&to=${to}&date=${date}`).then(r => r.json());
+    const busData = await fetch(`https://api.redbus.in/search?from=${from}&to=${to}&date=${date}`).then(r => r.json());
+    const cabData = await fetch(`https://api.uber.com/estimate?from=${from}&to=${to}`).then(r => r.json());
+
+    res.json({
+      trains: trainData,
+      buses: busData,
+      cabs: cabData
+    });
+  } catch (error) {
+    res.status(500).json({ error: "API fetch failed" });
+  }
+});
+
+app.listen(5000, () => console.log("Server running on port 5000"));
+        </pre>
+    </div>
+  </div>
+
+  <div class="tab-content" id="compare">
+    <div class="card">
+      <h3>SmartBudget Travel vs Rome2rio</h3>
+      <ul>
+        <li><b>Indian Relevance:</b> SmartBudget (95%) vs Rome2rio (75%)</li>
+        <li><b>Multi-Modal Integration:</b> SmartBudget (60%) vs Rome2rio (100%)</li>
+        <li><b>Budget Features:</b> SmartBudget (90%) vs Rome2rio (85%)</li>
+        <li><b>Real-Time Data:</b> SmartBudget (50%) vs Rome2rio (90%)</li>
+        <li><b>Global Coverage:</b> SmartBudget (10%) vs Rome2rio (100%)</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2025 SmartBudget Travel | Integrated with IRCTC, RedBus, Uber, Ola, Skyscanner</p>
+  </footer>
+  </div>
+
+  <script>
+    let passengerCount = 0;
+    function addPassenger() {
+      passengerCount++;
+      const list = document.getElementById("passenger-list");
+      const div = document.createElement("div");
+      div.classList.add("passenger");
+      div.id = "passenger-" + passengerCount;
+      div.innerHTML = `
+        <input type="text" placeholder="Passenger Name">
+        <input type="number" placeholder="Bags" min="0">
+        <button class="remove-passenger" onclick="removePassenger(${passengerCount})">×</button>
+      `;
+      list.appendChild(div);
+    }
+    function removePassenger(id) {
+      const div = document.getElementById("passenger-" + id);
+      div.remove();
+    }
+    function calculateFare() {
+      alert("Estimated fare: ₹1200 (sample)");
+    }
+    function findRoutes() {
+      alert("Fetching best routes... (API simulation)");
+    }
+    function openTab(id) {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+      document.querySelector(`.tab[onclick="openTab('${id}')"]`).classList.add("active");
+      document.getElementById(id).classList.add("active");
+    }
+  </script>
+</body>
+</html>
+i made changes to it so please give me that code with all the functionalities that we have disussed earlier
